@@ -1,0 +1,16 @@
+{
+  "display_information": {
+    "name": "국내주식 관점봇",
+    "description": "공개 글의 투자 관점을 적용해 쉽게 설명하는 AI"
+  },
+  "features": {
+    "bot_user": {"display_name": "카투 관점 AI", "always_online": false}
+  },
+  "oauth_config": {
+    "scopes": {"bot": ["app_mentions:read", "chat:write"]}
+  },
+  "settings": {
+    "event_subscriptions": {"bot_events": ["app_mention"]},
+    "socket_mode_enabled": true
+  }
+}

@@ -1,0 +1,54 @@
+[
+  {
+    "id": "P01",
+    "kind": "principle",
+    "ticker": "*",
+    "title": "너무 이른 발견에는 기다림의 기회비용이 있다.",
+    "text": "너무 이른 발견에는 기다림의 기회비용이 있다.",
+    "url": "https://x.com/blazingbees/status/1982994652686152114",
+    "published_at": "2025-10-28",
+    "observed_at": "2026-10-15",
+    "valid_until": "2026-11-15",
+    "reviewed": false,
+    "synthetic": false
+  },
+  {
+    "id": "P02",
+    "kind": "principle",
+    "ticker": "*",
+    "title": "기업 개별 움직임과 업종 간 자금 이동을 함께 살핀다.",
+    "text": "기업 개별 움직임과 업종 간 자금 이동을 함께 살핀다.",
+    "url": "https://x.com/blazingbees/status/1977550620044480553",
+    "published_at": "2025-10-13",
+    "observed_at": "2026-10-15",
+    "valid_until": "2026-11-15",
+    "reviewed": false,
+    "synthetic": false
+  },
+  {
+    "id": "P03",
+    "kind": "principle",
+    "ticker": "*",
+    "title": "새 정보가 들어오면 기존 판단을 갱신한다.",
+    "text": "새 정보가 들어오면 기존 판단을 갱신한다.",
+    "url": "https://x.com/blazingbees/status/1979102318890225707",
+    "published_at": "2025-10-18",
+    "observed_at": "2026-10-15",
+    "valid_until": "2026-11-15",
+    "reviewed": false,
+    "synthetic": false
+  },
+  {
+    "id": "P04",
+    "kind": "principle",
+    "ticker": "*",
+    "title": "사후 결과와 당시 정보로 내린 결정의 적절성을 구분한다.",
+    "text": "사후 결과와 당시 정보로 내린 결정의 적절성을 구분한다.",
+    "url": "https://x.com/blazingbees/status/1978100253283783043",
+    "published_at": "2025-10-15",
+    "observed_at": "2026-10-15",
+    "valid_until": "2026-11-15",
+    "reviewed": false,
+    "synthetic": false
+  }
+]

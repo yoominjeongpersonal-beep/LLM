@@ -1,0 +1,54 @@
+[
+  {
+    "id": "DEMO-P1",
+    "kind": "principle",
+    "ticker": "005930",
+    "title": "평가용 가상 자료",
+    "text": "평가용 가상 원칙: 실적과 시장 반응을 함께 확인한다.",
+    "url": "https://example.com/DEMO-P1",
+    "published_at": "2026-10-14",
+    "observed_at": "2026-10-14",
+    "valid_until": "2026-10-15",
+    "reviewed": true,
+    "synthetic": true
+  },
+  {
+    "id": "DEMO-F1",
+    "kind": "financial",
+    "ticker": "005930",
+    "title": "평가용 가상 자료",
+    "text": "가상 입력: 실적은 개선됨. 실제 기업 사실 아님.",
+    "url": "https://example.com/DEMO-F1",
+    "published_at": "2026-10-14",
+    "observed_at": "2026-10-14",
+    "valid_until": "2026-10-15",
+    "reviewed": true,
+    "synthetic": true
+  },
+  {
+    "id": "DEMO-M1",
+    "kind": "market",
+    "ticker": "005930",
+    "title": "평가용 가상 자료",
+    "text": "가상 입력: 상대 약세와 거래량 둔화. 실제 시장 수치 아님.",
+    "url": "https://example.com/DEMO-M1",
+    "published_at": "2026-10-14",
+    "observed_at": "2026-10-14",
+    "valid_until": "2026-10-15",
+    "reviewed": true,
+    "synthetic": true
+  },
+  {
+    "id": "DEMO-S1",
+    "kind": "sector",
+    "ticker": "005930",
+    "title": "평가용 가상 자료",
+    "text": "가상 입력: 업종이 해당 종목보다 강함. 실제 시장 사실 아님.",
+    "url": "https://example.com/DEMO-S1",
+    "published_at": "2026-10-14",
+    "observed_at": "2026-10-14",
+    "valid_until": "2026-10-15",
+    "reviewed": true,
+    "synthetic": true
+  }
+]
