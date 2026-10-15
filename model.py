@@ -15,8 +15,13 @@ metrics.missing 항목의 숫자는 추측하지 않는다. 수치 부족으로 
 수치 표와 출처는 프로그램이 붙이므로 본문에 자료 ID를 나열하지 않는다.
 counter와 change는 각각 250자 이내로 쓴다. 거래량만으로 매수/매도 주체를 단정하지 않는다.
 투자 기간과 기준일을 준수하고 적용 원칙을 근거와 연결한다.
+mode=documents이면 제공된 문서만으로 기업의 강점·위험·확인할 사항을 분석한다.
+이 모드의 verdict는 긍정/주의/혼재/자료 부족/판단 보류 중 하나이며 매수·매도 판단은 하지 않는다.
+실시간 데이터가 없다는 이유로 기업 분석 전체를 생략하지 않는다.
+검토된 principle 자료가 없으면 카투 관점이라고 주장하지 말고 principle_ids=[]로 반환한다.
+source_ids에는 실제 읽은 document 또는 financial 자료의 ID를 포함한다.
 JSON 객체만 반환한다. 필드는 verdict, reason, counter, change, source_ids, principle_ids.
-verdict는 매수 검토/관망/회피 검토/판단 보류 중 하나.
+mode=market일 때 verdict는 매수 검토/관망/회피 검토/판단 보류 중 하나.
 reason/counter/change는 비어 있지 않은 한국어 문자열이다.
 source_ids는 근거로 사용한 기업·시장·업종 자료의 ID 배열이다.
 principle_ids는 적용한 principle 자료 ID 배열이다. 입력 ID만 사용한다.
@@ -27,7 +32,7 @@ DEFAULT_MODEL = "claude-sonnet-5-5"
 SCHEMA = {
     "type": "object",
     "properties": {
-        "verdict": {"type": "string", "enum": ["매수 검토", "관망", "회피 검토", "판단 보류"]},
+        "verdict": {"type": "string", "enum": ["매수 검토", "관망", "회피 검토", "판단 보류", "긍정", "주의", "혼재", "자료 부족"]},
         "reason": {"type": "string"},
         "counter": {"type": "string"},
         "change": {"type": "string"},

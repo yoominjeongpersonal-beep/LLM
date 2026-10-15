@@ -8,8 +8,9 @@ from model import ModelError
 from metrics import calculate_metrics
 
 TICKERS = {"삼성전자": "005930", "SK하이닉스": "000660"}
-PROMPT_VERSION = "2"
+PROMPT_VERSION = "3"
 VERDICTS = {"매수 검토", "관망", "회피 검토", "판단 보류"}
+DOCUMENT_VERDICTS = {"긍정", "주의", "혼재", "자료 부족", "판단 보류"}
 
 
 def today():
@@ -17,30 +18,36 @@ def today():
 
 
 class Bot:
-    def __init__(self, store, generate=None):
+    def __init__(self, store, generate=None, mode="market"):
+        if mode not in {"market", "documents"}:
+            raise ValueError("지원하지 않는 분석 모드")
         self.store = store
         self.generate = generate
+        self.mode = mode
 
-    def ask(self, question, horizon=None, as_of=None):
+    def ask(self, question, horizon=None, as_of=None, preview=False, refresh=False):
         as_of = as_of or today()
         date.fromisoformat(as_of)
         matched = [code for name, code in TICKERS.items()
                    if name.lower() in question.lower() or code in question]
-        base = dict(question=question, horizon=horizon, as_of=as_of,
+        base = dict(question=question, horizon=horizon, as_of=as_of, mode=self.mode,
                     prompt_version=PROMPT_VERSION, model=getattr(self.generate, "model", "injected"),
                     sources=[], attempts=0, source_ids=[], principle_ids=[], synthetic=False,
                     metrics={"items": [], "missing": []})
         if len(matched) != 1:
-            return self._save(dict(base, status="unsupported", verdict="판단 보류",
-                                   reason="삼성전자 또는 SK하이닉스 한 종목씩 질문해주세요."))
-        if not horizon or not horizon.strip():
-            return self._save(dict(base, status="needs_horizon", verdict="판단 보류",
-                                   reason="어느 기간으로 볼까요? 예: 1~3개월, 1년 이상."))
+            result = dict(base, status="unsupported", verdict="판단 보류",
+                          reason="삼성전자 또는 SK하이닉스 한 종목씩 질문해주세요.")
+            return result if preview else self._save(result)
+        if self.mode == "market" and (not horizon or not horizon.strip()):
+            result = dict(base, status="needs_horizon", verdict="판단 보류",
+                          reason="어느 기간으로 볼까요? 예: 1~3개월, 1년 이상.")
+            return result if preview else self._save(result)
         base["ticker"] = matched[0]
         cutoff = (date.fromisoformat(as_of) - timedelta(days=1)).isoformat()
         sources = [s for s in self.store.sources(as_of)
                    if s["ticker"] in {matched[0], "*"}
                    and (s["kind"] != "principle" or s["reviewed"])
+                   and (self.mode != "documents" or s["kind"] in {"document", "financial", "principle"})
                    and (s["kind"] not in {"market", "sector"} or s["observed_at"] >= cutoff)]
         base["sources"] = sources
         base["metrics"] = calculate_metrics(sources)
@@ -49,20 +56,33 @@ class Bot:
             [s for s in sources if s["kind"] == "principle"], sort_keys=True,
             ensure_ascii=False).encode()).hexdigest()[:16]
         missing = sorted({"principle", "financial", "market", "sector"} - {s["kind"] for s in sources})
+        if self.mode == "documents":
+            missing = [] if any(s["kind"] in {"document", "financial"} for s in sources) else ["document"]
+        if preview:
+            return dict(base, status="preview", verdict="미리보기", missing=missing,
+                        reason=f"API 호출 없음 · 선택 자료 {len(sources)}개 · " +
+                        ("부족한 자료: " + ", ".join(missing) if missing else "문서·수치·출처를 확인한 뒤 분석하세요."))
         if missing:
             return self._save(dict(base, status="insufficient", verdict="판단 보류", missing=missing,
                                    reason="판단에 필요한 최신 자료가 부족해요: " + ", ".join(missing)))
         if self.generate is None:
             return self._save(dict(base, status="unconfigured", verdict="판단 보류",
                                    reason="분석 모델이 연결되지 않았어요."))
+        cache_key = hashlib.sha256(json.dumps(base, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        if not refresh:
+            for previous in self.store.history():
+                if previous.get("cache_key") == cache_key and previous["status"] == "answered":
+                    return dict(previous, cached=True)
+        base["cache_key"] = cache_key
         context = dict(base)
         error_code = "invalid_response"
         error_reason = "모델 응답의 형식이나 출처 검증에 실패했어요."
-        for attempt in range(1, 3):
+        # Document experiments make a single paid call; retry is explicit.
+        for attempt in range(1, 2 if self.mode == "documents" else 3):
             base["attempts"] = attempt
             try:
                 output = self.generate(context)
-                self._validate(output, sources)
+                self._validate(output, sources, self.mode)
                 return self._save(dict(base, **output, status="answered"))
             except ModelError as error:
                 error_code, error_reason = error.code, str(error)
@@ -77,9 +97,10 @@ class Bot:
                                error_code=error_code, reason=error_reason))
 
     @staticmethod
-    def _validate(output, sources):
+    def _validate(output, sources, mode="market"):
         keys = {"verdict", "reason", "counter", "change", "source_ids", "principle_ids"}
-        if not isinstance(output, dict) or set(output) != keys or output["verdict"] not in VERDICTS:
+        verdicts = DOCUMENT_VERDICTS if mode == "documents" else VERDICTS
+        if not isinstance(output, dict) or set(output) != keys or output["verdict"] not in verdicts:
             raise ValueError("응답 형식 오류")
         for field in ("reason", "counter", "change"):
             if not isinstance(output[field], str) or not output[field].strip() or len(output[field]) > 1800:
@@ -89,11 +110,16 @@ class Bot:
         by_id = {s["id"]: s for s in sources}
         for field in ("source_ids", "principle_ids"):
             ids = output[field]
-            if not isinstance(ids, list) or not ids or any(not isinstance(i, str) or i not in by_id for i in ids):
+            allow_empty = field == "principle_ids" and mode == "documents" and not any(s["kind"] == "principle" for s in sources)
+            if not isinstance(ids, list) or (not ids and not allow_empty) or any(not isinstance(i, str) or i not in by_id for i in ids):
                 raise ValueError("출처 오류")
         if any(by_id[i]["kind"] != "principle" for i in output["principle_ids"]):
             raise ValueError("원칙 출처 오류")
-        if not {"financial", "market", "sector"}.issubset({by_id[i]["kind"] for i in output["source_ids"]}):
+        kinds = {by_id[i]["kind"] for i in output["source_ids"]}
+        if mode == "documents":
+            if not kinds.intersection({"document", "financial"}):
+                raise ValueError("기업 분석 출처 부족")
+        elif not {"financial", "market", "sector"}.issubset(kinds):
             raise ValueError("기업·시장 근거 부족")
 
     def _save(self, result):
@@ -107,6 +133,13 @@ def render(result):
     if result["synthetic"]:
         lines.append("[가상 자료를 사용한 테스트 — 실제 투자 판단이 아닙니다]")
     lines.extend(["*" + result["verdict"] + "*", result["reason"]])
+    if result.get("cached"):
+        lines.append("저장된 답변 재사용 · API 재호출 없음")
+    if result["status"] == "preview":
+        for s in result["sources"]:
+            lines.append(s["id"] + " · " + s["title"] + " · " + s["published_at"] + "\n" + s["url"])
+        for m in result["metrics"]["items"]:
+            lines.append(m["display"])
     if result["status"] == "answered":
         if result.get("metrics", {}).get("items"):
             lines.append("\n*수치 근거 (코드 계산)*")
@@ -116,12 +149,18 @@ def render(result):
             lines.append("수치 확인 불가: " + ", ".join(result["metrics"]["missing"]))
         lines += ["\n*반대 근거*\n" + result["counter"], "\n*판단이 바뀌는 조건*\n" + result["change"]]
     lines.append("\n기준일: " + result["as_of"] + " · 기간: " + (result["horizon"] or "미정"))
-    lines.append("카투 공개 글의 관점을 적용한 AI 판단입니다. 본인의 현재 의견이 아닙니다.")
+    if result.get("mode") == "documents":
+        lines.append("문서 기준 기업 분석입니다. 현재 가격의 매수·매도 판단은 보류합니다.")
+    if result.get("mode") == "documents" and not result["principle_ids"]:
+        lines.append("검토된 투자 원칙이 적용되지 않은 일반 문서 분석입니다.")
+    else:
+        lines.append("카투 공개 글의 관점을 적용한 AI 판단입니다. 본인의 현재 의견이 아닙니다.")
     used = set(result["source_ids"] + result["principle_ids"])
     if result["status"] == "answered":
         used.update(id for m in result.get("metrics", {}).get("items", []) for id in m["source_ids"])
     for s in result["sources"]:
         if s["id"] in used:
             lines.append(s["id"] + " · " + s["title"] + " · " + s["published_at"] + "\n" + s["url"])
-    lines.append("기록 #" + str(result["analysis_id"]))
+    if "analysis_id" in result:
+        lines.append("기록 #" + str(result["analysis_id"]))
     return escape("\n".join(lines), quote=False)

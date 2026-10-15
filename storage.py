@@ -39,12 +39,14 @@ class Store:
                 raise ValueError("자료 필드가 부족합니다")
             if any(not isinstance(s[k], str) or not s[k].strip() for k in required[:-2]):
                 raise ValueError("자료 문자열은 비어 있을 수 없습니다")
-            if s["kind"] not in {"principle", "financial", "market", "sector"}:
+            if s["kind"] not in {"principle", "financial", "market", "sector", "document"}:
                 raise ValueError("알 수 없는 자료 종류")
             if not all(type(s[k]) is bool for k in ("reviewed", "synthetic")):
                 raise ValueError("reviewed/synthetic은 boolean이어야 합니다")
             parsed = urlparse(s["url"])
-            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            remote = parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+            local = parsed.scheme == "file" and parsed.netloc == "" and parsed.path.startswith("/")
+            if not (remote or local):
                 raise ValueError("자료에 http(s) 출처가 필요합니다")
             for k in ("published_at", "observed_at", "valid_until"):
                 date.fromisoformat(s[k])

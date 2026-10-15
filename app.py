@@ -3,10 +3,27 @@ import argparse
 import json
 import os
 import re
+import hashlib
+from pathlib import Path
 
-from bot import Bot, TICKERS, render
+from bot import Bot, TICKERS, render, today
 from model import Claude, DEFAULT_MODEL
 from storage import Store
+
+
+def import_document(store, path, ticker, published_at, valid_until, title=None, url=None, synthetic=False):
+    path = Path(path).resolve()
+    if path.suffix.lower() not in {".md", ".txt"} or path.stat().st_size > 150000:
+        raise ValueError("150KB 이하의 Markdown 또는 텍스트 파일을 사용해주세요")
+    text = path.read_text(encoding="utf-8").strip()
+    if not text or ticker not in set(TICKERS.values()) | {"*"}:
+        raise ValueError("빈 문서 또는 지원하지 않는 종목")
+    id = "DOC-" + hashlib.sha256((str(path) + ticker).encode()).hexdigest()[:16]
+    record = dict(id=id, kind="document", ticker=ticker, title=title or path.stem, text=text,
+                  url=url or path.as_uri(), published_at=published_at, observed_at=today(),
+                  valid_until=valid_until, reviewed=False, synthetic=synthetic)
+    store.import_sources([record])
+    return id
 
 
 def handle_mention(event_id, event, bot, post):
@@ -74,11 +91,22 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     ingest = commands.add_parser("import", help="자료 JSON 배열 저장")
     ingest.add_argument("file")
+    document = commands.add_parser("add-document", help="Markdown/텍스트 저장 (API 호출 없음)")
+    document.add_argument("file")
+    document.add_argument("--ticker", required=True, choices=["005930", "000660", "*"])
+    document.add_argument("--published-at", required=True)
+    document.add_argument("--valid-until", required=True)
+    document.add_argument("--title")
+    document.add_argument("--source-url")
+    document.add_argument("--synthetic", action="store_true")
     ask = commands.add_parser("ask", help="로컬 질문")
     ask.add_argument("question")
     ask.add_argument("--horizon")
     ask.add_argument("--as-of")
     ask.add_argument("--json", action="store_true")
+    ask.add_argument("--mode", choices=["documents", "market"], default=os.environ.get("BOT_MODE", "documents"))
+    ask.add_argument("--preview", action="store_true", help="선택 자료 확인만 진행 · API 호출 없음")
+    ask.add_argument("--refresh", action="store_true", help="저장 답변 대신 재생성 · API 요금 발생")
     commands.add_parser("history", help="저장한 판단 기록")
     commands.add_parser("slack", help="Slack Socket Mode 실행")
     args = parser.parse_args()
@@ -91,14 +119,18 @@ def main():
             print(str(len(records)) + "개 자료 저장")
         elif args.command == "history":
             print(json.dumps(store.history(), ensure_ascii=False, indent=2))
+        elif args.command == "add-document":
+            id = import_document(store, args.file, args.ticker, args.published_at, args.valid_until,
+                                 args.title, args.source_url, args.synthetic)
+            print(id + " 문서 저장 완료 · API 호출 없음")
         else:
             api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
             model = Claude(api_key, os.environ.get("CLAUDE_MODEL", DEFAULT_MODEL)) if api_key else None
-            bot = Bot(store, model)
+            bot = Bot(store, model, mode=getattr(args, "mode", os.environ.get("BOT_MODE", "documents")))
             if args.command == "slack":
                 run_slack(bot)
             else:
-                result = bot.ask(args.question, args.horizon, args.as_of)
+                result = bot.ask(args.question, args.horizon, args.as_of, preview=args.preview, refresh=args.refresh)
                 print(json.dumps(result, ensure_ascii=False, indent=2) if args.json else render(result))
     except (ValueError, OSError, ImportError):
         # Never print external HTTP exceptions: request URLs may carry secrets.
