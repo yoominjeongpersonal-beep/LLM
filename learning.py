@@ -89,7 +89,7 @@ class Learning:
                 self.store.put("replies", "learning:" + event_id, cached)
             posted = post(**cached)
             posted_ts = posted.get("ts") if hasattr(posted, "get") else None
-            if posted_ts and cached["text"].startswith(("관점 초안 ·", "저장된 초안 재사용 ·")):
+            if posted_ts and cached["text"].startswith(("관점 초안 ·", "이전 정리 결과를 다시 표시했어요.")):
                 state = self.store.get("learning_threads", self.key(event))
                 if state and state.get("status") == "review":
                     self.store.map_learning_review(event["channel"], posted_ts, self.key(event))
@@ -192,7 +192,9 @@ class Learning:
 
     @staticmethod
     def _render_draft(draft, cached=False):
-        lines = ["저장된 초안 재사용 · API 호출 없음" if cached else "관점 초안 · 아직 적용하지 않았어요."]
+        lines = ["이전 정리 결과를 다시 표시했어요. 기존 메시지는 ✅ 승인에 연결되지 않아 새로 올렸습니다. "
+                 "원문이 그대로라 Claude에 다시 요청하지 않았고, 추가 비용도 없어요."
+                 if cached else "관점 초안 · 아직 적용하지 않았어요."]
         for i, p in enumerate(draft["principles"], 1):
             label = "판단 원칙" if p["kind"] == "principle" else "상황별 의견 (영구 원칙으로 적용 안 함)"
             lines += [f"\n{i}. [{label}] {p['statement']}", "적용 조건: " + p["conditions"],
