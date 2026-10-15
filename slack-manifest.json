@@ -4,7 +4,7 @@
   },
   "features": {
     "bot_user": {
-      "display_name": "katoo-bot",
+      "display_name": "k-bot",
       "always_online": false
     }
   },
