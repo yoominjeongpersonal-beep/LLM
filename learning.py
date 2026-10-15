@@ -137,15 +137,17 @@ class Learning:
         self.store.put("learning_threads", self.key(event), state)
         return "원문을 저장했어요. 더 넣어도 되고, 다 넣었으면 저를 멘션해 ‘관점 정리’를 요청해주세요."
 
-    def _materials(self, key):
+    def _materials(self, key, pending_only=True):
         result = []
-        for p in self.store.learning_posts(key):
+        for p in self.store.learning_posts(key, pending_only=pending_only):
             url = "https://slack.com/archives/" + p["channel"] + "/p" + p["ts"].replace(".", "")
             result.append(dict(id="MAT-" + digest([key, p["ts"]]), text=p["text"], url=url))
         return result
 
     def _extract(self, key, state, feedback):
         materials = self._materials(key)
+        if not materials and self._materials(key, pending_only=False):
+            return "새로 정리할 글이 없어요. 이미 ✅ 승인한 글은 다시 분석하지 않았어요. 새 글을 이 스레드에 추가한 뒤 ‘관점 정리’를 요청해주세요."
         body_text = "\n".join(re.sub(r"<https?://[^>]+>|https?://\S+", "", s["text"]) for s in materials).strip()
         if len(body_text) < 20:
             return "관점을 추출할 글 본문이 부족해요. 링크뿐 아니라 본문도 붙여넣어주세요. AI는 호출하지 않았어요."
@@ -212,6 +214,7 @@ class Learning:
         common = dict(ticker="*", persona=self.persona, learning_thread=key, published_at=day,
                       scope_channel=state["channel"], pool="perspective",
                       observed_at=day, valid_until="9999-12-31", synthetic=False, reviewed=True)
+        processed_posts = [p["ts"] for p in self.store.learning_posts(key, pending_only=True)]
         sources = [dict(common, id=s["id"], kind="perspective_material", title="승인된 Slack 원문 (원래 작성일 미확인)",
                         text=s["text"], url=s["url"]) for s in draft["sources"]]
         for i, p in enumerate(draft["principles"]):
@@ -221,8 +224,8 @@ class Learning:
                                     title=p["statement"], text=p["statement"] + "\n적용 조건: " + p["conditions"],
                                     url=original["url"], evidence=p))
         state["status"] = "approved"
-        self.store.approve_learning(key, state, sources)
-        return "승인했어요. 원문과 판단 원칙을 이 봇의 자료로 반영했어요. 상황별 의견은 당시 발언으로만 참고하며 현재 매수 추천으로 쓰지 않아요. 승인에는 AI를 호출하지 않았어요."
+        self.store.approve_learning(key, state, sources, processed_posts, day)
+        return "승인했어요. 원문과 판단 원칙을 이 봇의 자료로 반영하고, 이번 원문을 처리 완료로 표시했어요. 다음 정리에서는 이미 승인한 글을 건너뛰고 새 글만 읽어요. 상황별 의견은 당시 발언으로만 참고하며 현재 매수 추천으로 쓰지 않아요. 승인에는 AI를 호출하지 않았어요."
 
     def _discard_draft(self, key, state):
         if not state.get("draft"):

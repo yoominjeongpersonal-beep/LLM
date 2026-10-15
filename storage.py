@@ -23,6 +23,9 @@ class Store:
                 CREATE TABLE IF NOT EXISTS learning_reviews (
                     channel TEXT NOT NULL, message_ts TEXT NOT NULL, thread_id TEXT NOT NULL,
                     PRIMARY KEY(channel, message_ts));
+                CREATE TABLE IF NOT EXISTS learning_processed_posts (
+                    thread_id TEXT NOT NULL, ts TEXT NOT NULL, approved_at TEXT NOT NULL,
+                    PRIMARY KEY(thread_id, ts));
                 CREATE TABLE IF NOT EXISTS learning_posts (
                     thread_id TEXT NOT NULL, ts TEXT NOT NULL, body TEXT NOT NULL,
                     PRIMARY KEY(thread_id, ts));
@@ -116,9 +119,15 @@ class Store:
             db.execute("INSERT OR REPLACE INTO learning_posts VALUES (?, ?, ?)",
                        (thread_id, event["ts"], json.dumps(event, ensure_ascii=False)))
 
-    def learning_posts(self, thread_id):
+    def learning_posts(self, thread_id, pending_only=False):
         with self.connect() as db:
-            rows = db.execute("SELECT body FROM learning_posts WHERE thread_id=? ORDER BY ts", (thread_id,))
+            if pending_only:
+                rows = db.execute(
+                    "SELECT body FROM learning_posts WHERE thread_id=? AND ts NOT IN "
+                    "(SELECT ts FROM learning_processed_posts WHERE thread_id=?) ORDER BY ts",
+                    (thread_id, thread_id))
+            else:
+                rows = db.execute("SELECT body FROM learning_posts WHERE thread_id=? ORDER BY ts", (thread_id,))
             return [json.loads(row[0]) for row in rows]
 
     def map_learning_review(self, channel, message_ts, thread_id):
@@ -137,14 +146,13 @@ class Store:
         with self.connect() as db:
             db.execute("DELETE FROM learning_reviews WHERE thread_id=?", (thread_id,))
 
-    def approve_learning(self, key, state, sources):
-        """Replace only this thread's active sources in one transaction."""
+    def approve_learning(self, key, state, sources, processed_posts, approved_at):
+        """Add this batch's approved sources and mark its posts processed atomically."""
         with self.connect() as db:
-            for id, body in db.execute("SELECT id, body FROM sources").fetchall():
-                if json.loads(body).get("learning_thread") == key:
-                    db.execute("DELETE FROM sources WHERE id=?", (id,))
             db.executemany("INSERT OR REPLACE INTO sources VALUES (?, ?)",
                            [(s["id"], json.dumps(s, ensure_ascii=False)) for s in sources])
             db.execute("INSERT OR REPLACE INTO learning_threads VALUES (?, ?)",
                        (key, json.dumps(state, ensure_ascii=False)))
+            db.executemany("INSERT OR IGNORE INTO learning_processed_posts VALUES (?, ?, ?)",
+                           [(key, ts, approved_at) for ts in processed_posts])
             db.execute("DELETE FROM learning_reviews WHERE thread_id=?", (key,))
