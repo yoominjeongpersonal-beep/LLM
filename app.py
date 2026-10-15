@@ -5,7 +5,7 @@ import os
 import re
 
 from bot import Bot, TICKERS, render
-from model import Ollama
+from model import Claude, DEFAULT_MODEL
 from storage import Store
 
 
@@ -92,8 +92,8 @@ def main():
         elif args.command == "history":
             print(json.dumps(store.history(), ensure_ascii=False, indent=2))
         else:
-            model_name = os.environ.get("OLLAMA_MODEL", "")
-            model = Ollama(model_name, os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")) if model_name else None
+            api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+            model = Claude(api_key, os.environ.get("CLAUDE_MODEL", DEFAULT_MODEL)) if api_key else None
             bot = Bot(store, model)
             if args.command == "slack":
                 run_slack(bot)

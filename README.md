@@ -19,15 +19,17 @@ python3 -m unittest discover -s tests -v
 
 원칙 예시는 검토 전 후보입니다. 따라서 위 질문은 자료가 부족하다는 보류 응답을 반환합니다. 실제 답을 생성하려면 원칙을 원문과 대조해 reviewed를 true로 바꾸고 기업·시장·업종 자료를 넣어야 합니다.
 
-Ollama를 설치하고 사용할 모델을 준비한 뒤 서버를 실행하세요. 선택한 모델 이름을 명시적으로 지정합니다. 모델 자동 다운로드는 하지 않습니다.
+답변 생성에는 Claude API를 사용합니다. [Claude Console](https://platform.claude.com/)에서 API 키를 발급하고 환경변수를 설정하세요. API 키는 채팅이나 Git에 넣지 않습니다. 요청에 포함되는 질문과 선택된 자료는 Anthropic으로 전송됩니다.
 
 ```sh
-export OLLAMA_MODEL='설치한-모델명'
-export OLLAMA_URL='http://127.0.0.1:11434'
+# 키를 터미널 기록에 남기지 않고 입력 (macOS zsh)
+read -rs 'ANTHROPIC_API_KEY?Claude API key: '; echo
+export ANTHROPIC_API_KEY
+export CLAUDE_MODEL='claude-sonnet-5-5'
 python3 app.py ask '삼성전자 지금 어떻게 봐?' --horizon '1~3개월'
 ```
 
-Ollama 요청 형식은 [공식 Chat API](https://docs.ollama.com/api/chat)를 따릅니다. 현재 환경에서는 실제 모델 연결을 검증하지 않았습니다. 모델 오류 또는 형식·출처 검증 실패 시 한 번 재시도하고 판단을 보류합니다. 입력 ID 검사로 출처 조작을 줄이지만, 주장과 출처가 의미상 일치하는지는 별도 평가가 필요합니다.
+Claude [Messages API](https://platform.claude.com/docs/en/api/messages/create)와 [구조화 출력](https://platform.claude.com/docs/en/build-with-claude/structured-outputs)을 사용합니다. 기본 모델은 claude-sonnet-5-5이며 CLAUDE_MODEL로 변경할 수 있습니다. 현재 환경에서는 실제 API 연결을 검증하지 않았습니다. 질문 하나에 최대 두 번 호출하며 각 호출의 출력 상한은 2048토큰입니다. 입력 길이도 비용에 영향을 줍니다. 모델 오류 또는 형식·출처 검증 실패 시 한 번 재시도하고 판단을 보류합니다. 잘린 응답과 거절 응답도 보류합니다. 입력 ID 검사로 출처 조작을 줄이지만, 주장과 출처가 의미상 일치하는지는 별도 평가가 필요합니다.
 
 ## 자료 넣기
 
