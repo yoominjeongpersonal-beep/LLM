@@ -9,6 +9,7 @@ from pathlib import Path
 from bot import Bot, TICKERS, render, today
 from model import Claude, DEFAULT_MODEL
 from storage import Store
+from learning import Learning
 
 
 def import_document(store, path, ticker, published_at, valid_until, title=None, url=None, synthetic=False):
@@ -26,7 +27,9 @@ def import_document(store, path, ticker, published_at, valid_until, title=None, 
     return id
 
 
-def handle_mention(event_id, event, bot, post):
+def handle_mention(event_id, event, bot, post, learning=None):
+    if learning and learning.handle_mention(event_id, event, post):
+        return
     if event.get("bot_id") or not bot.store.claim_event(event_id):
         return
     try:
@@ -51,7 +54,7 @@ def handle_mention(event_id, event, bot, post):
                 horizon = horizon or context.get("horizon")
             elif context and len(matched) == 1 and matched == previous:
                 horizon = horizon or context.get("horizon")
-            result = bot.ask(question, horizon)
+            result = bot.ask(question, horizon, channel=event["channel"])
             if result["status"] != "unsupported":
                 bot.store.put("threads", key, dict(question=question, horizon=horizon))
             # Cache before delivery: network retry reuses the original analysis.
@@ -72,15 +75,24 @@ def run_slack(bot):
         if not os.environ.get(name):
             raise ValueError(name + "을 설정해주세요")
     app = App(token=os.environ["SLACK_BOT_TOKEN"])
+    learning = Learning(bot.store, bot.generate, persona=bot.persona,
+                        bot_user_id=app.client.auth_test()["user_id"])
 
     @app.event("app_mention")
     def mention(body, event, client, logger):
         try:
-            handle_mention(body["event_id"], event, bot, client.chat_postMessage)
+            handle_mention(body["event_id"], event, bot, client.chat_postMessage, learning)
         except Exception:
             logger.error("응답 처리 실패. 원문 이벤트와 토큰은 로그에 기록하지 않습니다.")
             client.chat_postMessage(channel=event["channel"], thread_ts=event.get("thread_ts", event["ts"]),
                                     text="분석 저장 또는 전달에 실패했어요. 잠시 후 다시 멘션해주세요.")
+
+    @app.event("message")
+    def material(body, event, client, logger):
+        try:
+            learning.handle_message(body["event_id"], event, client.chat_postMessage)
+        except Exception:
+            logger.error("자료 댓글 저장 실패. 원문과 인증정보는 로그에 기록하지 않습니다.")
 
     SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()
 
@@ -104,7 +116,7 @@ def main():
     ask.add_argument("--horizon")
     ask.add_argument("--as-of")
     ask.add_argument("--json", action="store_true")
-    ask.add_argument("--mode", choices=["documents", "market"], default=os.environ.get("BOT_MODE", "documents"))
+    ask.add_argument("--mode", choices=["documents", "market", "viewpoint"], default=os.environ.get("BOT_MODE", "documents"))
     ask.add_argument("--preview", action="store_true", help="선택 자료 확인만 진행 · API 호출 없음")
     ask.add_argument("--refresh", action="store_true", help="저장 답변 대신 재생성 · API 요금 발생")
     commands.add_parser("history", help="저장한 판단 기록")
@@ -126,7 +138,8 @@ def main():
         else:
             api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
             model = Claude(api_key, os.environ.get("CLAUDE_MODEL", DEFAULT_MODEL)) if api_key else None
-            bot = Bot(store, model, mode=getattr(args, "mode", os.environ.get("BOT_MODE", "documents")))
+            bot = Bot(store, model, mode=getattr(args, "mode", os.environ.get("BOT_MODE", "viewpoint")),
+                      persona=os.environ.get("BOT_PERSONA", "katoo"))
             if args.command == "slack":
                 run_slack(bot)
             else:

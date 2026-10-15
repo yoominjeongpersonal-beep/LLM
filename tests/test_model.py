@@ -9,6 +9,31 @@ from model import Claude, ModelError
 
 
 class ModelTests(unittest.TestCase):
+    def test_extraction_uses_its_own_schema_and_returns_draft(self):
+        payload = json.dumps({"content": [{"type": "text", "text": '{"principles":[]}'}],
+                              "stop_reason": "end_turn"}).encode()
+        requests = []
+        def receive(request, **kwargs):
+            requests.append(json.loads(request.data))
+            return BytesIO(payload)
+        with patch("model.urlopen", side_effect=receive):
+            result = Claude("test-key")({"task": "extract_viewpoint", "sources": []})
+        self.assertEqual(result, {"principles": []})
+        self.assertEqual(requests[0]["output_config"]["format"]["schema"]["required"], ["principles"])
+
+    def test_separate_pools_do_not_duplicate_full_text_in_request(self):
+        payload = json.dumps({"content": [{"type": "text", "text": '{}'}], "stop_reason": "end_turn"}).encode()
+        requests = []
+        def receive(request, **kwargs):
+            requests.append(json.loads(request.data))
+            return BytesIO(payload)
+        record = {"id": "P1", "text": "판단 기준 원문"}
+        with patch("model.urlopen", side_effect=receive):
+            Claude("test-key")({"sources": [record], "perspective_sources": [record], "research_sources": []})
+        sent = json.loads(requests[0]["messages"][0]["content"])
+        self.assertEqual(sent["perspective_sources"][0]["text"], "판단 기준 원문")
+        self.assertNotIn("sources", sent)
+
     def test_http_errors_are_classified_without_exposing_body(self):
         cases = [(401, 'invalid key SECRET', 'authentication'),
                  (400, 'Your credit balance is too low SECRET', 'credits'),

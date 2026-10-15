@@ -18,6 +18,11 @@ class Store:
                 CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, status TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS threads (id TEXT PRIMARY KEY, body TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS replies (id TEXT PRIMARY KEY, body TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS learning_threads (id TEXT PRIMARY KEY, body TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS learning_drafts (id TEXT PRIMARY KEY, body TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS learning_posts (
+                    thread_id TEXT NOT NULL, ts TEXT NOT NULL, body TEXT NOT NULL,
+                    PRIMARY KEY(thread_id, ts));
             """)
 
     @contextmanager
@@ -39,7 +44,7 @@ class Store:
                 raise ValueError("자료 필드가 부족합니다")
             if any(not isinstance(s[k], str) or not s[k].strip() for k in required[:-2]):
                 raise ValueError("자료 문자열은 비어 있을 수 없습니다")
-            if s["kind"] not in {"principle", "financial", "market", "sector", "document"}:
+            if s["kind"] not in {"principle", "financial", "market", "sector", "document", "perspective_material"}:
                 raise ValueError("알 수 없는 자료 종류")
             if not all(type(s[k]) is bool for k in ("reviewed", "synthetic")):
                 raise ValueError("reviewed/synthetic은 boolean이어야 합니다")
@@ -90,15 +95,36 @@ class Store:
             db.execute("DELETE FROM events WHERE id=? AND status='processing'", (event_id,))
 
     def get(self, table, key):
-        if table not in {"threads", "replies"}:
+        if table not in {"threads", "replies", "learning_threads", "learning_drafts"}:
             raise ValueError("Unknown table")
         with self.connect() as db:
             row = db.execute("SELECT body FROM " + table + " WHERE id=?", (key,)).fetchone()
         return json.loads(row[0]) if row else None
 
     def put(self, table, key, record):
-        if table not in {"threads", "replies"}:
+        if table not in {"threads", "replies", "learning_threads", "learning_drafts"}:
             raise ValueError("Unknown table")
         with self.connect() as db:
             db.execute("INSERT OR REPLACE INTO " + table + " VALUES (?, ?)",
                        (key, json.dumps(record, ensure_ascii=False)))
+
+    def save_learning_post(self, thread_id, event):
+        with self.connect() as db:
+            db.execute("INSERT OR REPLACE INTO learning_posts VALUES (?, ?, ?)",
+                       (thread_id, event["ts"], json.dumps(event, ensure_ascii=False)))
+
+    def learning_posts(self, thread_id):
+        with self.connect() as db:
+            rows = db.execute("SELECT body FROM learning_posts WHERE thread_id=? ORDER BY ts", (thread_id,))
+            return [json.loads(row[0]) for row in rows]
+
+    def approve_learning(self, key, state, sources):
+        """Replace only this thread's active sources in one transaction."""
+        with self.connect() as db:
+            for id, body in db.execute("SELECT id, body FROM sources").fetchall():
+                if json.loads(body).get("learning_thread") == key:
+                    db.execute("DELETE FROM sources WHERE id=?", (id,))
+            db.executemany("INSERT OR REPLACE INTO sources VALUES (?, ?)",
+                           [(s["id"], json.dumps(s, ensure_ascii=False)) for s in sources])
+            db.execute("INSERT OR REPLACE INTO learning_threads VALUES (?, ?)",
+                       (key, json.dumps(state, ensure_ascii=False)))

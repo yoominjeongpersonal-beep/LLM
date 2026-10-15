@@ -20,6 +20,6 @@ jobs:
           cache: pip
       - run: python -m pip install -r requirements.txt
       - run: python -m unittest discover -s tests -v
-      - run: python -m compileall -q app.py bot.py model.py metrics.py storage.py
+      - run: python -m compileall -q app.py bot.py model.py metrics.py storage.py learning.py
       - run: python -m pip check
       - run: docker build --tag investment-bot:check .
