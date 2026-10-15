@@ -20,6 +20,9 @@ class Store:
                 CREATE TABLE IF NOT EXISTS replies (id TEXT PRIMARY KEY, body TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS learning_threads (id TEXT PRIMARY KEY, body TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS learning_drafts (id TEXT PRIMARY KEY, body TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS learning_reviews (
+                    channel TEXT NOT NULL, message_ts TEXT NOT NULL, thread_id TEXT NOT NULL,
+                    PRIMARY KEY(channel, message_ts));
                 CREATE TABLE IF NOT EXISTS learning_posts (
                     thread_id TEXT NOT NULL, ts TEXT NOT NULL, body TEXT NOT NULL,
                     PRIMARY KEY(thread_id, ts));
@@ -118,6 +121,22 @@ class Store:
             rows = db.execute("SELECT body FROM learning_posts WHERE thread_id=? ORDER BY ts", (thread_id,))
             return [json.loads(row[0]) for row in rows]
 
+    def map_learning_review(self, channel, message_ts, thread_id):
+        with self.connect() as db:
+            db.execute("DELETE FROM learning_reviews WHERE thread_id=?", (thread_id,))
+            db.execute("INSERT OR REPLACE INTO learning_reviews VALUES (?, ?, ?)",
+                       (channel, message_ts, thread_id))
+
+    def learning_review(self, channel, message_ts):
+        with self.connect() as db:
+            row = db.execute("SELECT thread_id FROM learning_reviews WHERE channel=? AND message_ts=?",
+                             (channel, message_ts)).fetchone()
+        return row[0] if row else None
+
+    def clear_learning_reviews(self, thread_id):
+        with self.connect() as db:
+            db.execute("DELETE FROM learning_reviews WHERE thread_id=?", (thread_id,))
+
     def approve_learning(self, key, state, sources):
         """Replace only this thread's active sources in one transaction."""
         with self.connect() as db:
@@ -128,3 +147,4 @@ class Store:
                            [(s["id"], json.dumps(s, ensure_ascii=False)) for s in sources])
             db.execute("INSERT OR REPLACE INTO learning_threads VALUES (?, ?)",
                        (key, json.dumps(state, ensure_ascii=False)))
+            db.execute("DELETE FROM learning_reviews WHERE thread_id=?", (key,))

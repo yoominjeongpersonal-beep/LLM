@@ -94,6 +94,13 @@ def run_slack(bot):
         except Exception:
             logger.error("자료 댓글 저장 실패. 원문과 인증정보는 로그에 기록하지 않습니다.")
 
+    @app.event("reaction_added")
+    def review_reaction(body, event, client, logger):
+        try:
+            learning.handle_reaction(body["event_id"], event, client.chat_postMessage)
+        except Exception:
+            logger.error("관점 초안 반응 처리 실패. 원문과 인증정보는 로그에 기록하지 않습니다.")
+
     SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()
 
 

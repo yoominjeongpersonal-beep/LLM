@@ -14,7 +14,8 @@
         "app_mentions:read",
         "chat:write",
         "channels:history",
-        "groups:history"
+        "groups:history",
+        "reactions:read"
       ]
     }
   },
@@ -23,7 +24,8 @@
       "bot_events": [
         "app_mention",
         "message.channels",
-        "message.groups"
+        "message.groups",
+        "reaction_added"
       ]
     },
     "socket_mode_enabled": true

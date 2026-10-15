@@ -51,6 +51,27 @@ class Learning:
                 return False
             return self._event(event_id, event, post, lambda: self._collect(event, state))
 
+    def handle_reaction(self, event_id, event, post):
+        reaction = event.get("reaction")
+        if reaction not in {"white_check_mark", "x"}:
+            return False
+        item = event.get("item", {})
+        if item.get("type") != "message":
+            return False
+        with self.lock:
+            key = self.store.learning_review(item.get("channel", ""), item.get("ts", ""))
+            state = self.store.get("learning_threads", key) if key else None
+            if not state or state.get("status") != "review":
+                return False
+            if state.get("owner") != event.get("user"):
+                return True
+            root_ts = state.get("thread_ts") or key.rsplit(":", 1)[-1]
+            action = (lambda: self._approve(key, state)) if reaction == "white_check_mark" else (
+                lambda: self._discard_draft(key, state))
+            normalized = dict(channel=item["channel"], thread_ts=root_ts, ts=root_ts,
+                              user=event["user"])
+            return self._event(event_id, normalized, post, action)
+
     def _event(self, event_id, event, post, action):
         if event.get("bot_id") or not self.store.claim_event("learning:" + event_id):
             return True
@@ -66,7 +87,12 @@ class Learning:
                 cached = dict(channel=event["channel"], thread_ts=event.get("thread_ts", event["ts"]),
                               text=escape(text, quote=False), unfurl_links=False, unfurl_media=False)
                 self.store.put("replies", "learning:" + event_id, cached)
-            post(**cached)
+            posted = post(**cached)
+            posted_ts = posted.get("ts") if hasattr(posted, "get") else None
+            if posted_ts and cached["text"].startswith(("관점 초안 ·", "저장된 초안 재사용 ·")):
+                state = self.store.get("learning_threads", self.key(event))
+                if state and state.get("status") == "review":
+                    self.store.map_learning_review(event["channel"], posted_ts, self.key(event))
             self.store.finish_event("learning:" + event_id)
         except Exception:
             self.store.release_event("learning:" + event_id)
@@ -92,13 +118,13 @@ class Learning:
             state["status"] = "cancelled"
             self.store.put("learning_threads", key, state)
             return "수집을 종료했어요. 미승인 초안은 적용하지 않아요. 이미 승인한 원칙은 유지돼요."
+        if text == "승인":
+            return "초안 메시지에 ✅ 반응을 달면 승인돼요. 체크 전에는 관점이 분석에 적용되지 않아요."
         if text == "관점 정리" or text.startswith("수정:"):
             feedback = text[3:].strip() if text.startswith("수정:") else ""
             if text.startswith("수정:") and not feedback:
                 return "‘수정: 바꿀 내용’으로 입력해주세요."
             return self._extract(key, state, feedback)
-        if text == "승인":
-            return self._approve(key, state)
         return self._collect(dict(event, text=text), state)
 
     def _collect(self, event, state):
@@ -195,3 +221,11 @@ class Learning:
         state["status"] = "approved"
         self.store.approve_learning(key, state, sources)
         return "승인했어요. 원문과 판단 원칙을 이 봇의 자료로 반영했어요. 상황별 의견은 당시 발언으로만 참고하며 현재 매수 추천으로 쓰지 않아요. 승인에는 AI를 호출하지 않았어요."
+
+    def _discard_draft(self, key, state):
+        if not state.get("draft"):
+            return "폐기할 초안이 없어요. 원문은 보관돼 있어요."
+        state.update(status="collecting", draft=None)
+        self.store.put("learning_threads", key, state)
+        self.store.clear_learning_reviews(key)
+        return "초안을 폐기했어요. 원문은 보관돼 있어요. 다시 정리하려면 ‘관점 정리’를 요청해주세요."
