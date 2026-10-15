@@ -5,9 +5,10 @@ import re
 from html import escape
 from datetime import date, datetime, timedelta, timezone
 from model import ModelError
+from metrics import calculate_metrics
 
 TICKERS = {"삼성전자": "005930", "SK하이닉스": "000660"}
-PROMPT_VERSION = "1"
+PROMPT_VERSION = "2"
 VERDICTS = {"매수 검토", "관망", "회피 검토", "판단 보류"}
 
 
@@ -27,7 +28,8 @@ class Bot:
                    if name.lower() in question.lower() or code in question]
         base = dict(question=question, horizon=horizon, as_of=as_of,
                     prompt_version=PROMPT_VERSION, model=getattr(self.generate, "model", "injected"),
-                    sources=[], attempts=0, source_ids=[], principle_ids=[], synthetic=False)
+                    sources=[], attempts=0, source_ids=[], principle_ids=[], synthetic=False,
+                    metrics={"items": [], "missing": []})
         if len(matched) != 1:
             return self._save(dict(base, status="unsupported", verdict="판단 보류",
                                    reason="삼성전자 또는 SK하이닉스 한 종목씩 질문해주세요."))
@@ -41,6 +43,7 @@ class Bot:
                    and (s["kind"] != "principle" or s["reviewed"])
                    and (s["kind"] not in {"market", "sector"} or s["observed_at"] >= cutoff)]
         base["sources"] = sources
+        base["metrics"] = calculate_metrics(sources)
         base["synthetic"] = any(s["synthetic"] for s in sources)
         base["principles_version"] = hashlib.sha256(json.dumps(
             [s for s in sources if s["kind"] == "principle"], sort_keys=True,
@@ -105,10 +108,18 @@ def render(result):
         lines.append("[가상 자료를 사용한 테스트 — 실제 투자 판단이 아닙니다]")
     lines.extend(["*" + result["verdict"] + "*", result["reason"]])
     if result["status"] == "answered":
+        if result.get("metrics", {}).get("items"):
+            lines.append("\n*수치 근거 (코드 계산)*")
+            for m in result["metrics"]["items"]:
+                lines.append("• " + m["display"] + " · 출처 " + ", ".join(m["source_ids"]))
+        if result.get("metrics", {}).get("missing"):
+            lines.append("수치 확인 불가: " + ", ".join(result["metrics"]["missing"]))
         lines += ["\n*반대 근거*\n" + result["counter"], "\n*판단이 바뀌는 조건*\n" + result["change"]]
     lines.append("\n기준일: " + result["as_of"] + " · 기간: " + (result["horizon"] or "미정"))
     lines.append("카투 공개 글의 관점을 적용한 AI 판단입니다. 본인의 현재 의견이 아닙니다.")
     used = set(result["source_ids"] + result["principle_ids"])
+    if result["status"] == "answered":
+        used.update(id for m in result.get("metrics", {}).get("items", []) for id in m["source_ids"])
     for s in result["sources"]:
         if s["id"] in used:
             lines.append(s["id"] + " · " + s["title"] + " · " + s["published_at"] + "\n" + s["url"])

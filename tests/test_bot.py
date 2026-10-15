@@ -132,6 +132,19 @@ class BotTests(unittest.TestCase):
         self.store.import_sources([source("F1", "financial", title="<!channel> 공시")])
         self.assertNotIn("<!channel>", render(self.ask()))
 
+    def test_computed_numbers_reach_model_render_and_snapshot(self):
+        self.seed()
+        self.store.import_sources([source("F1", "financial", measurements={"revenue": dict(
+            current=115, previous=100, unit="억원", basis="연결", period="2026년 2분기",
+            previous_period="2025년 2분기", period_end="2026-06-30", previous_period_end="2025-06-30")})])
+        def generate(context):
+            self.assertEqual(context["metrics"]["items"][0]["change_pct"], 15.0)
+            return answer(context)
+        result = Bot(self.store, generate).ask("삼성전자", "1년", "2026-10-15")
+        self.assertIn("+15.00%", render(result))
+        self.assertIn("억원", render(result))
+        self.assertEqual(self.store.history()[0]["metrics"]["items"][0]["current"], 115)
+
 
 if __name__ == "__main__":
     unittest.main()

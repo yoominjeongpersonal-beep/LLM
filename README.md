@@ -103,4 +103,15 @@ python3 app.py slack
 
 실자료 자동 연결이 다음 우선순위입니다. [OpenDART 재무 API](https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS003&apiId=2019020)는 인증키가 필요합니다. 주가·거래량·업종 자료는 [KIS 개발자센터](https://apiportal.koreainvestment.com/) 등에서 이용 조건과 필요한 필드를 확인한 뒤 연결해야 합니다. 현재 봇이 이 API에서 자료를 자동 조회하지는 않습니다.
 
-파일은 루트의 app.py, bot.py, model.py, storage.py와 docs/, tests/, examples/로 구성했습니다. 설계는 docs/design.md, 구현 범위는 docs/plan.md에 있습니다.
+파일은 루트의 app.py, bot.py, model.py, storage.py, metrics.py와 docs/, tests/, examples/로 구성했습니다. 설계는 docs/design.md, 구현 범위는 docs/plan.md에 있습니다.
+
+## 수치 근거
+
+metrics.py가 입력값으로 계산한 결과를 Claude에 전달하고, 같은 값을 답변의 ‘수치 근거’에 직접 표시합니다. 모델이 계산한 숫자에 의존하지 않습니다. 모델의 설명이 모든 숫자를 정확히 인용하는지까지 자동 보장하는 것은 아닙니다.
+
+- 실적: financial 자료의 measurements.revenue, measurements.operating_profit에 current, previous, unit, basis, period, previous_period, period_end, previous_period_end를 넣습니다. 단위·연결/별도 기준·분기/누적 범위가 같은 자료끼리 입력해야 합니다. 이 일치 여부는 입력자가 확인합니다. `100 × (현재/비교값 − 1)`을 계산하며 비교값이 0 이하이면 원금액만 표시합니다.
+- 시세: market 자료의 prices는 date, close, volume을 갖는 배열입니다. 종가는 같은 수정주가 기준과 원 단위, 거래량은 주 단위로 넣습니다. 분할 등으로 기준이 바뀐 자료를 그대로 비교하면 안 됩니다.
+- 업종: sector 자료의 prices는 date, close 배열입니다. 종목 자료의 처음·마지막 날짜와 정확히 같은 지수 날짜가 있을 때만 수익률을 비교합니다. 두 수익률의 차이는 %가 아닌 %p로 표시합니다. 가격수익률이며 배당은 포함하지 않습니다.
+- 거래량: 최신 5개와 그 직전 20개 관측일의 평균을 비교합니다. 최소 25개 관측치가 필요합니다. 거래일 누락 여부와 휴장일은 자동 검증하지 않으므로 자료 제공 시 완전한 거래일 시계열인지 확인해야 합니다.
+
+원자료가 없거나 형식이 맞지 않는 지표는 ‘수치 확인 불가’로 표시하며 임의로 채우지 않습니다. 숫자만으로 매수 결론을 정하지 않습니다. 수치는 계산 버전 및 사용 출처와 함께 분석 기록에 저장됩니다. examples/synthetic.json에 전체 입력 예시가 있습니다. 실자료 자동 수집은 아직 연결되지 않았습니다.
