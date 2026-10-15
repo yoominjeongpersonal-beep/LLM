@@ -151,13 +151,13 @@ class Learning:
 
     @staticmethod
     def _validate(output, materials):
-        if not isinstance(output, dict) or set(output) != {"principles"} or not isinstance(output["principles"], list) or not 1 <= len(output["principles"]) <= 5:
+        if not isinstance(output, dict) or set(output) != {"principles"} or not isinstance(output["principles"], list) or not 1 <= len(output["principles"]) <= 3:
             raise ValueError("초안 형식 오류")
         by_id = {s["id"]: s for s in materials}
         for p in output["principles"]:
             if set(p) != {"statement", "conditions", "kind", "source_id", "quote"}:
                 raise ValueError("원칙 필드 오류")
-            if any(not isinstance(p[k], str) or not p[k].strip() or len(p[k]) > 600 for k in p):
+            if any(not isinstance(p[k], str) or not p[k].strip() or len(p[k]) > 400 for k in p):
                 raise ValueError("원칙 길이 오류")
             if p["kind"] not in {"principle", "situational"} or p["source_id"] not in by_id:
                 raise ValueError("원칙 분류 또는 출처 오류")
