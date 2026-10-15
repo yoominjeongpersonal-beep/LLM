@@ -1,5 +1,7 @@
 """Claude Messages API adapter with structured JSON output."""
 import json
+import ssl
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 SYSTEM = """국내 주식 분석 보조 AI다. 카투 본인이 아니며 공개 자료의 관점을 적용한다.
@@ -31,6 +33,14 @@ SCHEMA = {
 }
 
 
+class ModelError(ValueError):
+    """Only curated diagnostics may leave the HTTP adapter."""
+    def __init__(self, code, message, retryable=False):
+        super().__init__(message)
+        self.code = code
+        self.retryable = retryable
+
+
 class Claude:
     def __init__(self, api_key, model=DEFAULT_MODEL, base_url="https://api.anthropic.com", timeout=60):
         if not api_key.strip() or not model.strip():
@@ -47,9 +57,30 @@ class Claude:
         request = Request(self.base_url + "/v1/messages", data=json.dumps(payload).encode(),
                           headers={"Content-Type": "application/json", "x-api-key": self._api_key,
                                    "anthropic-version": "2023-06-01"})
-        with urlopen(request, timeout=self.timeout) as response:
-            body = json.load(response)
+        try:
+            with urlopen(request, timeout=self.timeout) as response:
+                body = json.load(response)
+        except HTTPError as error:
+            status = error.code
+            with error:
+                raw = error.read(16384).decode("utf-8", errors="replace").lower()
+            if status == 401:
+                raise ModelError("authentication", "Claude API 키 인증에 실패했어요. 키 설정을 확인해주세요.") from None
+            if status == 400 and "credit balance" in raw:
+                raise ModelError("credits", "Claude API 크레딧이 부족해요. Console에서 API 결제·잔액을 확인해주세요.") from None
+            messages = {
+                400: ("invalid_request", "Claude API가 요청 형식을 거절했어요. 모델과 구조화 출력 설정을 확인해야 해요."),
+                403: ("permission", "이 API 키로 모델에 접근할 권한이 없어요."),
+                404: ("model_not_found", "선택한 Claude 모델을 찾을 수 없어요. CLAUDE_MODEL 설정을 확인해주세요."),
+                429: ("rate_limit", "Claude API 요청 한도를 초과했어요. 잠시 후 다시 시도해주세요."),
+            }
+            code, message = messages.get(status, ("api_error", "Claude API 서버 요청에 실패했어요."))
+            raise ModelError(code, message, retryable=status >= 500) from None
+        except URLError as error:
+            if isinstance(error.reason, ssl.SSLCertVerificationError):
+                raise ModelError("tls", "Python의 HTTPS 인증서 확인에 실패했어요. 인증서 설정을 확인해야 해요.") from None
+            raise ModelError("network", "Claude API에 연결하지 못했어요. 네트워크 연결을 확인해주세요.", True) from None
         if body.get("stop_reason") != "end_turn":
-            raise ValueError("완료되지 않았거나 거절된 응답입니다")
+            raise ModelError("incomplete_response", "Claude 응답이 길이 제한으로 잘렸거나 거절됐어요.", True)
         text = "".join(block["text"] for block in body["content"] if block.get("type") == "text")
         return json.loads(text)

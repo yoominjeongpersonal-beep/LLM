@@ -4,6 +4,7 @@ import json
 import re
 from html import escape
 from datetime import date, datetime, timedelta, timezone
+from model import ModelError
 
 TICKERS = {"삼성전자": "005930", "SK하이닉스": "000660"}
 PROMPT_VERSION = "1"
@@ -52,16 +53,25 @@ class Bot:
             return self._save(dict(base, status="unconfigured", verdict="판단 보류",
                                    reason="분석 모델이 연결되지 않았어요."))
         context = dict(base)
+        error_code = "invalid_response"
+        error_reason = "모델 응답의 형식이나 출처 검증에 실패했어요."
         for attempt in range(1, 3):
             base["attempts"] = attempt
             try:
                 output = self.generate(context)
                 self._validate(output, sources)
                 return self._save(dict(base, **output, status="answered"))
-            except (ValueError, KeyError, TypeError, OSError):
+            except ModelError as error:
+                error_code, error_reason = error.code, str(error)
+                if not error.retryable:
+                    break
+            except OSError:
+                error_code, error_reason = "network", "Claude API 연결 중 오류가 발생했어요. 네트워크를 확인해주세요."
+            except (ValueError, KeyError, TypeError):
+                error_code, error_reason = "invalid_response", "모델 응답의 형식이나 출처 검증에 실패했어요."
                 context["retry_instruction"] = "JSON 형식과 입력 자료 ID만 사용했는지 확인하세요."
         return self._save(dict(base, status="generation_failed", verdict="판단 보류",
-                               reason="모델 응답이나 근거를 확인하지 못했어요. 다시 요청해주세요."))
+                               error_code=error_code, reason=error_reason))
 
     @staticmethod
     def _validate(output, sources):

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from bot import Bot, render
 from storage import Store
+from model import ModelError
 
 
 def source(id, kind, **overrides):
@@ -22,6 +23,17 @@ def answer(context):
 
 
 class BotTests(unittest.TestCase):
+    def test_api_auth_failure_is_specific_and_not_retried(self):
+        self.seed()
+        calls = []
+        def rejected(_):
+            calls.append(1)
+            raise ModelError("authentication", "Claude API 키 인증에 실패했어요.")
+        result = Bot(self.store, rejected).ask("삼성전자", "1년", "2026-10-15")
+        self.assertEqual(result["error_code"], "authentication")
+        self.assertIn("인증", result["reason"])
+        self.assertEqual(len(calls), 1)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.store = Store(Path(self.temp.name) / "bot.db")

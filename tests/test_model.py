@@ -4,10 +4,25 @@ import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from unittest.mock import patch
 from io import BytesIO
-from model import Claude
+from urllib.error import HTTPError
+from model import Claude, ModelError
 
 
 class ModelTests(unittest.TestCase):
+    def test_http_errors_are_classified_without_exposing_body(self):
+        cases = [(401, 'invalid key SECRET', 'authentication'),
+                 (400, 'Your credit balance is too low SECRET', 'credits'),
+                 (404, 'model unavailable SECRET', 'model_not_found'),
+                 (429, 'too many requests SECRET', 'rate_limit')]
+        for status, message, code in cases:
+            error = HTTPError('https://api.anthropic.com/v1/messages', status, 'error', {},
+                              BytesIO(json.dumps({'error': {'message': message}}).encode()))
+            with self.subTest(status=status), patch('model.urlopen', side_effect=error):
+                with self.assertRaises(ModelError) as caught:
+                    Claude('test-key')({})
+                self.assertEqual(caught.exception.code, code)
+                self.assertNotIn('SECRET', str(caught.exception))
+
     def test_truncated_or_refused_response_is_rejected(self):
         for reason in ("max_tokens", "refusal"):
             payload = json.dumps({"content": [{"type": "text", "text": '{"verdict":"관망"}'}],
